@@ -1,0 +1,20 @@
+cnv
+
+This is a POSIX shell script that invokes other programs to convert files.
+
+The goal of this script is to remember obscure shell commands so you don't have
+to. It is similar in philosophy to mitsuhiko's unp utility, the main difference
+being that unp depends on python, making it less portable.
+
+Examples:
+
+	# use fontforge to convert a woff font to otf:
+	cnv file1.woff otf
+
+	# Create file1.jpg, file2.jpg, and file3.jpg from file1.png, file1.jpeg, and
+	# file2.TIFF (file2.jpeg is just copied).
+	cnv file1.png file2.jpeg file2.TIFF jpg
+
+
+As of right now, not a lot of filetypes are supported. I plan on adding more as
+I encounter them.

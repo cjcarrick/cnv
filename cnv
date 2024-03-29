@@ -1,0 +1,125 @@
+#/bin/sh
+
+print_error () {
+    printf "Error: $@\n"
+}
+
+print_warning () {
+    printf "Warn: $@\n"
+}
+
+print_help () {
+    printf "Usage: $0 \033[4minputs...\033[24m \033[4mextension\033[24m\n"
+}
+
+unknown_mime () {
+	[ "$1" == "inode/x-empty" ] || [ "$1" == "application/octet-stream" ]
+}
+
+run_cmd () {
+    echo $@
+    $@
+}
+
+get_mime () {
+	if ! [ -f "$1" ] ; then
+		printf "$(mime "$1")\n"
+		return 0
+	fi
+
+	FILE=$(file --mime-type --brief "$1")
+	if ! unknown_mime "$FILE" ; then
+		printf "$FILE\n"
+		return 0
+	fi
+
+	printf "$(mime "$1")\n"
+}
+
+is_font () {
+	LEFTPART="${1%/*}"
+	[ "$LEFTPART" == "font" ] || [ "$1" == "application/vnd.ms-opentype" ]
+}
+
+OUTPUT=""
+INPUTS=""
+N_ARGS=0
+for f in "$@" ; do
+	N_ARGS=$(( $N_ARGS + 1 ))
+	INPUTS="$INPUTS $OUTPUT"
+	OUTPUT="$f"
+done
+
+if [ $N_ARGS -lt 2 ] ; then
+	print_help
+	exit 1
+fi
+
+OUTPUT_MIME=$(get_mime "$OUTPUT")
+if unknown_mime "$OUTPUT_MIME" ; then
+	print_error "Not sure what to do. Unknown or trivial mime type ($OUTPUT_MIME) for given output extension $OUTPUT."
+	exit 1
+fi
+
+i=0
+for FROM in "$@" ; do
+	i=$(( $i + 1 ))
+	[ $i == $N_ARGS ] && break
+
+	if ! [ -f "$FROM" ] ; then
+		print_warning "$FROM is not a file. Skipping."
+		continue
+	fi
+
+	TO="${FROM%.*}.${OUTPUT}"
+	FROM_MIME=$(get_mime "$FROM")
+	TO_MIME=$(get_mime "$TO")
+
+	# no conversion necessary
+	if [ "$FROM_MIME" == "$TO_MIME" ] ; then
+		echo cp "$FROM" "$TO"
+		cp "$FROM" "$TO"
+		continue
+	fi
+
+	FROM_MIME_LEFTPART="${FROM_MIME%/*}"
+	TO_MIME_LEFTPART="${TO_MIME%/*}"
+
+	# image conversion
+	if [ "$FROM_MIME_LEFTPART" == "image" ] && [ "$TO_MIME_LEFTPART" == "image" ] ; then
+		run_cmd convert "$FROM" "$TO"
+		continue
+	fi
+
+	# font conversion
+	if is_font "$FROM_MIME" && is_font "$TO_MIME" ; then
+		run_cmd fontforge -lang=ff -c "Open(\"$FROM\"); Generate(\"$TO\")"
+		continue
+	fi
+
+	# video conversion
+	if [ "$FROM_MIME_LEFTPART" == "video" ] && [ "$TO_MIME_LEFTPART" == "video" ] ; then
+		run_cmd ffmpeg -i "$FROM" "$TO"
+		continue
+	fi
+
+	# audio conversion
+	if [ "$FROM_MIME_LEFTPART" == "audio" ] && [ "$TO_MIME_LEFTPART" == "audio" ] ; then
+		run_cmd ffmpeg -i "$FROM" "$TO"
+		continue
+	fi
+
+	# extract audio from video (requires ffmpeg)
+	if [ "$FROM_MIME_LEFTPART" == "video" ] && [ "$TO_MIME_LEFTPART" == "audio" ] ; then
+		run_cmd ffmpeg -vn -i "$FROM" "$TO"
+		continue
+	fi
+
+	# doc -> pdf (requires libreoffice)
+	if [ "$FROM_MIME" == "$(mime doc)" ] && [ "$TO_MIME" == "$(mime pdf)" ] ; then
+		run_cmd lowriter --convert-to pdf "$FROM"
+		continue
+	fi
+
+	print_warning "Not sure how to convert $FROM ($FROM_MIME) to $TO ($TO_MIME). Skipping."
+done
